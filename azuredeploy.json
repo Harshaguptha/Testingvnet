@@ -1,0 +1,317 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "outputs": {},
+  "parameters": {
+    "storageType": {
+      "type": "string",
+      "defaultValue": "Standard_LRS",
+      "allowedValues": [
+        "Standard_LRS",
+        "Standard_ZRS",
+        "Standard_GRS",
+        "Standard_RAGRS",
+        "Premium_LRS"
+      ]
+    },
+    "windowsvmName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "windowsvmAdminUserName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "windowsvmAdminPassword": {
+      "type": "securestring"
+    },
+    "windowsvmWindowsOSVersion": {
+      "type": "string",
+      "defaultValue": "2012-R2-Datacenter",
+      "allowedValues": [
+        "2008-R2-SP1",
+        "2012-Datacenter",
+        "2012-R2-Datacenter",
+        "Windows-Server-Technical-Preview"
+      ]
+    },
+    "publicipDnsName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sqldatabaseAdminLogin": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sqldatabaseAdminLoginPassword": {
+      "type": "securestring"
+    },
+    "sqldatabaseName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sqldatabaseCollation": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "SQL_Latin1_General_CP1_CI_AS"
+    },
+    "sqldatabaseEdition": {
+      "type": "string",
+      "defaultValue": "Basic",
+      "allowedValues": [
+        "Basic",
+        "Standard",
+        "Premium"
+      ]
+    },
+    "sqldatabaseRequestedServiceObjectiveName": {
+      "type": "string",
+      "defaultValue": "Basic",
+      "allowedValues": [
+        "Basic",
+        "S0",
+        "S1",
+        "S2",
+        "P1",
+        "P2",
+        "P3"
+      ],
+      "metadata": {
+        "description": "Describes the performance level for Edition"
+      }
+    }
+  },
+  "resources": [
+    {
+      "name": "vnet",
+      "type": "Microsoft.Network/virtualNetworks",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-03-30",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+      ],
+      "tags": {
+        "displayName": "vnet"
+      },
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('vnetPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('vnetSubnet1Name')]",
+            "properties": {
+              "addressPrefix": "[variables('vnetSubnet1Prefix')]",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+              }
+            }
+          },
+          {
+            "name": "[variables('vnetSubnet2Name')]",
+            "properties": {
+              "addressPrefix": "[variables('vnetSubnet2Prefix')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[variables('storageName')]",
+      "type": "Microsoft.Storage/storageAccounts",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-01-01",
+      "sku": {
+        "name": "[parameters('storageType')]"
+      },
+      "dependsOn": [],
+      "tags": {
+        "displayName": "storage"
+      },
+      "kind": "Storage"
+    },
+    {
+      "name": "[variables('windowsvmNicName')]",
+      "type": "Microsoft.Network/networkInterfaces",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-03-30",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', 'vnet')]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicipName'))]"
+      ],
+      "tags": {
+        "displayName": "windowsvmNic"
+      },
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[variables('windowsvmSubnetRef')]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicipName'))]"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[parameters('windowsvmName')]",
+      "type": "Microsoft.Compute/virtualMachines",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2015-06-15",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]",
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('windowsvmNicName'))]"
+      ],
+      "tags": {
+        "displayName": "windowsvm"
+      },
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[variables('windowsvmVmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[parameters('windowsvmName')]",
+          "adminUsername": "[parameters('windowsvmAdminUsername')]",
+          "adminPassword": "[parameters('windowsvmAdminPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "[variables('windowsvmImagePublisher')]",
+            "offer": "[variables('windowsvmImageOffer')]",
+            "sku": "[parameters('windowsvmWindowsOSVersion')]",
+            "version": "latest"
+          },
+          "osDisk": {
+            "name": "windowsvmOSDisk",
+            "vhd": {
+              "uri": "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), '2016-01-01').primaryEndpoints.blob, variables('windowsvmStorageAccountContainerName'), '/', variables('windowsvmOSDiskName'), '.vhd')]"
+            },
+            "caching": "ReadWrite",
+            "createOption": "FromImage"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('windowsvmNicName'))]"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "[variables('publicipName')]",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2016-03-30",
+      "dependsOn": [],
+      "tags": {
+        "displayName": "publicip"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic",
+        "dnsSettings": {
+          "domainNameLabel": "[parameters('publicipDnsName')]"
+        }
+      }
+    },
+    {
+      "name": "[variables('sqldatabaseName')]",
+      "type": "Microsoft.Sql/servers",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2014-04-01",
+      "dependsOn": [],
+      "tags": {
+        "displayName": "sqldatabase"
+      },
+      "properties": {
+        "administratorLogin": "[parameters('sqldatabaseAdminLogin')]",
+        "administratorLoginPassword": "[parameters('sqldatabaseAdminLoginPassword')]"
+      },
+      "resources": [
+        {
+          "name": "AllowAllWindowsAzureIps",
+          "type": "firewallrules",
+          "location": "[resourceGroup().location]",
+          "apiVersion": "2014-04-01",
+          "dependsOn": [
+            "[resourceId('Microsoft.Sql/servers', variables('sqldatabaseName'))]"
+          ],
+          "properties": {
+            "startIpAddress": "0.0.0.0",
+            "endIpAddress": "0.0.0.0"
+          }
+        },
+        {
+          "name": "[parameters('sqldatabaseName')]",
+          "type": "databases",
+          "location": "[resourceGroup().location]",
+          "apiVersion": "2014-04-01",
+          "dependsOn": [
+            "[resourceId('Microsoft.Sql/servers', variables('sqldatabaseName'))]"
+          ],
+          "tags": {
+            "displayName": "sqldatabase"
+          },
+          "properties": {
+            "collation": "[parameters('sqldatabaseCollation')]",
+            "edition": "[parameters('sqldatabaseEdition')]",
+            "maxSizeBytes": "1073741824",
+            "requestedServiceObjectiveName": "[parameters('sqldatabaseRequestedServiceObjectiveName')]"
+          }
+        }
+      ]
+    },
+    {
+      "comments": "Default Network Security Group for template",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2019-08-01",
+      "name": "[variables('networkSecurityGroupName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "default-allow-3389",
+            "properties": {
+              "priority": 1000,
+              "access": "Allow",
+              "direction": "Inbound",
+              "destinationPortRange": "3389",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "variables": {
+    "vnetPrefix": "10.0.0.0/16",
+    "vnetSubnet1Name": "Subnet-1",
+    "vnetSubnet1Prefix": "10.0.0.0/24",
+    "vnetSubnet2Name": "Subnet-2",
+    "vnetSubnet2Prefix": "10.0.1.0/24",
+    "storageName": "[concat('storage', uniqueString(resourceGroup().id))]",
+    "windowsvmImagePublisher": "MicrosoftWindowsServer",
+    "windowsvmImageOffer": "WindowsServer",
+    "windowsvmOSDiskName": "windowsvmOSDisk",
+    "windowsvmVmSize": "Standard_D2_v2",
+    "windowsvmVnetID": "[resourceId('Microsoft.Network/virtualNetworks', 'vnet')]",
+    "windowsvmSubnetRef": "[concat(variables('windowsvmVnetID'), '/subnets/', variables('vnetSubnet1Name'))]",
+    "windowsvmStorageAccountContainerName": "vhds",
+    "windowsvmNicName": "[concat(parameters('windowsvmName'), 'NetworkInterface')]",
+    "publicipName": "publicip",
+    "sqldatabaseName": "[concat('sqldatabase', uniqueString(resourceGroup().id))]",
+    "networkSecurityGroupName": "default-NSG"
+  }
+}
